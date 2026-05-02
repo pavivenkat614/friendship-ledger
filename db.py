@@ -1,14 +1,59 @@
 import os
 import pandas as pd
-import psycopg2
-from psycopg2 import pool
 from dotenv import load_dotenv
 import hashlib
 import base64
 import hmac
 import secrets
-import streamlit as st
 
+
+def init_sqlite():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        email TEXT,
+        password TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        name TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS friends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        group_id INTEGER,
+        name TEXT,
+        upi_id TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        group_id INTEGER,
+        expense_date TEXT,
+        description TEXT,
+        paid_by INTEGER,
+        amount REAL,
+        splits TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+init_sqlite()
 from pathlib import Path
 
 env_path = Path(__file__).parent / ".env"
@@ -25,38 +70,14 @@ print("DB_NAME:", DB_NAME)
 print("DB_USER:", DB_USER)
 print("DB_PORT:", DB_PORT)
 
-@st.cache_resource
-def init_db_pool():
-    try:
-        pool = psycopg2.pool.SimpleConnectionPool(
-            1,
-            20,
-            host=DB_HOST,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASS,
-            port=int(DB_PORT),
-        )
-        print("✅ DB Connected")
-        return pool
-    except Exception as e:
-        print("❌ DB Connection Error:", e)
-        return None
-    
-db_pool = init_db_pool()
+import sqlite3
 
 def get_connection():
-    if db_pool is None:
-        raise Exception("Database not connected")
-    return db_pool.getconn()
-
+    return sqlite3.connect("friendship_ledger.db")
 
 def return_connection(conn):
-    if conn is not None:
-        try:
-            db_pool.putconn(conn)
-        except Exception:
-            pass
+    if conn:
+        conn.close()
 
 
 def safe_rollback(conn):
@@ -117,7 +138,7 @@ def register_user(username, email, password):
         cur.execute(
             """
             INSERT INTO users (username, email, password)
-            VALUES (%s, %s, %s)
+            VALUES (?, ?, ?)
             """,
             (username, email, hash_password(password)),
         )
@@ -143,7 +164,7 @@ def login_user(username_or_email, password):
             """
             SELECT id, password
             FROM users
-            WHERE username=%s OR email=%s
+            WHERE username=? OR email=?
             """,
             (username_or_email, username_or_email),
         )
@@ -183,7 +204,7 @@ def create_group(user_id, group_name):
         cur.execute(
             """
             INSERT INTO groups (user_id, name)
-            VALUES (%s, %s)
+            VALUES (?, ?)
             """,
             (user_id, group_name),
         )
@@ -205,7 +226,7 @@ def get_user_groups(user_id):
             """
             SELECT id, name
             FROM groups
-            WHERE user_id = %s
+            WHERE user_id = ?
             ORDER BY id
             """,
             conn,
@@ -224,7 +245,7 @@ def add_friend(user_id, group_id, name, upi_id):
         cur.execute(
             """
             INSERT INTO friends (user_id, group_id, name, upi_id)
-            VALUES (%s, %s, %s, %s)
+            VALUES (?, ?, ?, ?)
             """,
             (user_id, group_id, name, upi_id),
         )
@@ -246,7 +267,7 @@ def get_friends(user_id, group_id):
             """
             SELECT id, name, upi_id
             FROM friends
-            WHERE user_id=%s AND group_id=%s
+            WHERE user_id=? AND group_id=?
             ORDER BY id
             """,
             conn,
@@ -268,7 +289,7 @@ def add_expense(user_id, group_id, expense_date, description, paid_by, amount, s
             """
             INSERT INTO expenses
             (user_id, group_id, expense_date, description, paid_by, amount, splits)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (user_id, group_id, expense_date, description, paid_by, amount, split_string),
         )
@@ -291,7 +312,7 @@ def delete_friend(friend_id):
         # check if used in expenses
         cur.execute("""
             SELECT COUNT(*) FROM expenses
-            WHERE paid_by = %s OR splits LIKE %s
+            WHERE paid_by = ? OR splits LIKE ?      
         """, (friend_id, f"%{friend_id}%"))
 
         count = cur.fetchone()[0]
@@ -299,7 +320,7 @@ def delete_friend(friend_id):
         if count > 0:
             return "Friend involved in expenses, cannot delete"
 
-        cur.execute("DELETE FROM friends WHERE id = %s", (friend_id,))
+        cur.execute("DELETE FROM friends WHERE id = ?", (friend_id,))
         conn.commit()
         return True
 
@@ -318,7 +339,7 @@ def get_expenses(user_id, group_id):
             """
             SELECT id, description, amount, paid_by, splits,expense_date
             FROM expenses
-            WHERE user_id=%s AND group_id=%s
+            WHERE user_id=? AND group_id=?
             ORDER BY id DESC
             """,
             conn,
