@@ -7,6 +7,29 @@ import hmac
 import secrets
 
 
+from pathlib import Path
+
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_PORT = os.getenv("DB_PORT", "5432")
+
+print("DB_HOST:", DB_HOST)
+print("DB_NAME:", DB_NAME)
+print("DB_USER:", DB_USER)
+print("DB_PORT:", DB_PORT)
+
+
+
+
+def get_connection():
+    return sqlite3.connect("friendship_ledger.db")
+
+import sqlite3
 def init_sqlite():
     conn = get_connection()
     cur = conn.cursor()
@@ -54,26 +77,6 @@ def init_sqlite():
     conn.commit()
     conn.close()
 init_sqlite()
-from pathlib import Path
-
-env_path = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=env_path)
-
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_PORT = os.getenv("DB_PORT", "5432")
-
-print("DB_HOST:", DB_HOST)
-print("DB_NAME:", DB_NAME)
-print("DB_USER:", DB_USER)
-print("DB_PORT:", DB_PORT)
-
-import sqlite3
-
-def get_connection():
-    return sqlite3.connect("friendship_ledger.db")
 
 def return_connection(conn):
     if conn:
